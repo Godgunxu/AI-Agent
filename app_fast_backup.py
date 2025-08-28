@@ -19,7 +19,27 @@ from langchain.chains import LLMChain
 # Streamlit Page Config
 # --------------------------
 st.set_page_config(
-    page_title="DocuMind AI - Intelligent Document Assistant",
+    page_title="Do        # Rotating placeholder - adapt based on current mode
+        has_vectorstore = 'vectorstore' in st.session_state and st.session_state.vectorstore is not None
+        force_general = st.session_state.get('force_general_mode', False)
+        using_documents = has_vectorstore and not force_general
+        
+        if using_documents:
+            hints = [
+                "Ask about key findings or methods…",
+                "Try: \"Summarize the main conclusions\"",
+                "Ask: \"What evidence supports this claim?\"",
+                "Try: \"Compare different approaches mentioned\"",
+                "Ask: \"What are the limitations discussed?\"",
+            ]
+        else:
+            hints = [
+                "Ask any question…",
+                "Try: \"python bubble sort algorithm\"",
+                "Ask: \"explain machine learning\"",
+                "Try: \"write a React component\"",
+                "Ask: \"how does photosynthesis work?\"",
+            ] AI - Intelligent Document Assistant",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -273,30 +293,12 @@ def check_ollama_status():
 
 
 def process_deepseek_response(text):
-    """Process DeepSeek responses to clean up thinking tags while preserving valuable content."""
     if "deepseek" in st.session_state.get("selected_model", "").lower():
         import re
-        
-        # For DeepSeek R1, preserve the thinking content but format it better
-        # Remove the thinking tags but keep the analysis if it's valuable
-        thinking_pattern = r"<think>(.*?)</think>"
-        thinking_match = re.search(thinking_pattern, text, flags=re.DOTALL)
-        
-        if thinking_match:
-            thinking_content = thinking_match.group(1).strip()
-            # Remove the thinking tags from the main response
-            text = re.sub(thinking_pattern, "", text, flags=re.DOTALL)
-            
-            # If the thinking content is substantial and adds value, include it as analysis
-            if len(thinking_content) > 100 and "分析" in thinking_content:
-                # Add a brief note about the analysis process without the full thinking
-                text = "**Analysis:** Comprehensive evaluation based on document context.\n\n" + text
-        
-        # Clean up other thinking patterns
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
         text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
         text = re.sub(r"\*\*Thinking:?\*\*.*?(?=\n\n|\*\*|$)", "", text, flags=re.DOTALL)
         text = re.sub(r"\n\s*\n\s*\n", "\n\n", text)
-    
     return text.strip()
 
 
@@ -382,22 +384,19 @@ def create_qa_chain(model_name, vectorstore, fast_mode=False):
         llm = build_llm(model_name, fast_mode=fast_mode)
 
         # Enhanced prompt template for better, more complete responses
-        prompt_template = """You are an intelligent document assistant with expertise in academic papers and technical documents. Use the following context to provide comprehensive and detailed answers to the user's question.
+        prompt_template = """You are an intelligent document assistant. Use the following context to provide comprehensive and detailed answers to the user's question.
 
 Context: {context}
 
 Question: {question}
 
 Instructions:
-- First, carefully analyze the provided context and identify all relevant information
-- Provide a complete and thorough answer with clear structure and numbering when appropriate
-- Include specific details, examples, and explanations from the documents
-- If discussing research papers, highlight main contributions, innovations, and methodologies
-- When multiple documents are relevant, synthesize information across sources
-- Be specific and cite information accurately from the documents
-- Provide comprehensive analysis rather than brief summaries
-- Structure your response with clear sections or bullet points for complex topics
-- If the context contains experimental results or data, explain their significance
+- Provide a complete and thorough answer based on the context
+- Include specific details, examples, and explanations when available
+- If the context contains multiple relevant points, address them all
+- Be specific and cite information from the documents when possible
+- If information is incomplete, explain what is available and what might be missing
+- Do not truncate your response - provide a full, comprehensive answer
 
 Answer:"""
 
@@ -406,19 +405,20 @@ Answer:"""
             input_variables=["context", "question"]
         )
 
-                # Choose retrieval strategy based on mode
+        # Choose retrieval strategy based on mode
         if fast_mode or model_name.lower().startswith("deepseek"):
             # Fast mode: direct retrieval with more documents for better context
-            retriever = vectorstore.as_retriever(search_kwargs={"k": 6})  # Increased for better context
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 4})  # Increased from 2
             qa = RetrievalQA.from_chain_type(
                 llm=llm, 
                 chain_type="stuff",
                 retriever=retriever, 
                 return_source_documents=True,
+                chain_type_kwargs={"prompt": PROMPT}
             )
         else:
-            # Standard mode: Multi-query retrieval for comprehensive search
-            base_ret = vectorstore.as_retriever(search_kwargs={"k": 8})  # Increased for more comprehensive results
+            # Standard mode: multi-query for better retrieval
+            base_ret = vectorstore.as_retriever(search_kwargs={"k": 5})  # Increased from 3
             mqr = MultiQueryRetriever.from_llm(retriever=base_ret, llm=llm)
             qa = RetrievalQA.from_chain_type(
                 llm=llm, 
@@ -457,7 +457,7 @@ def main():
     if "current_conversation" not in st.session_state:
         st.session_state.current_conversation = None
     if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "deepseek-r1:8b"  # Changed from llama3.2:latest for better reasoning
+        st.session_state.selected_model = "llama3.2:latest"
     if "fast_mode" not in st.session_state:
         st.session_state.fast_mode = True  # turn on by default for speed
 
@@ -781,9 +781,10 @@ def main():
                             for d in result.get("source_documents", []):
                                 source_path = d.metadata.get("source", "Unknown")
                                 name = os.path.basename(source_path)
-                                # Keep original path for more detailed info like notebook
+                                # Remove .pdf extension for cleaner display
+                                clean_name = name.replace('.pdf', '') if name.endswith('.pdf') else name
                                 page = d.metadata.get("page", "—")
-                                sources.append(f"- Filename: {source_path}  | Page: {page}")
+                                sources.append(f"📄 {clean_name} (page {page})")
 
                             content = answer
                             if st.session_state.show_help:
