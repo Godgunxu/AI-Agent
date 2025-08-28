@@ -1,6 +1,10 @@
-import streamlit as st
+# app_fast.py
 import os
+import time
+import random
 import hashlib
+import streamlit as st
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -8,772 +12,451 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.llms import Ollama
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain.chains import RetrievalQA
-import time
 
-# Configure Streamlit page
+
+# --------------------------
+# Streamlit Page Config
+# --------------------------
 st.set_page_config(
-    page_title="DocuMind AI - Intelligen            if st.button(sources_text, use_container_width=True): Document Assistant",
-    page_icon="�",
+    page_title="DocuMind AI - Intelligent Document Assistant",
+    page_icon="🧠",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed",
 )
 
-# Custom CSS function for ChatGPT-like UI with Dark/Light mode support
-def get_css_styles(is_dark_mode=False):
-    if is_dark_mode:
-        # Dark mode colors
-        bg_color = "#1a1a1a"
-        text_color = "#e5e5e5"
-        secondary_bg = "#2d2d2d"
-        border_color = "#404040"
-        user_msg_bg = "#0066cc"
-        assistant_msg_bg = "#2d2d2d"
-        header_bg = "#252525"
-    else:
-        # Light mode colors
-        bg_color = "#ffffff"
-        text_color = "#343541"
-        secondary_bg = "#f7f7f8"
-        border_color = "#e5e5e5"
-        user_msg_bg = "#f7f7f8"
-        assistant_msg_bg = "#ffffff"
-        header_bg = "#ffffff"
+
+# --------------------------
+# Styles (Light theme only)
+# --------------------------
+def get_css_styles():
+    bg_color = "#ffffff"
+    text_color = "#111827"
+    secondary_bg = "#f6f7f8"
+    border_color = "#e5e7eb"
+    user_msg_bg = "#ffffff"
+    assistant_msg_bg = "#f9fafb"
 
     return f"""
 <style>
-    /* Hide Streamlit elements */
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    header {{visibility: hidden;}}
-    .stDeployButton {{display: none;}}
-    
-    /* Override Streamlit's default background */
-    .stApp {{
-        background-color: {bg_color};
-        color: {text_color};
-    }}
-    
-    /* Force text color for all elements */
-    .stApp, .stApp *, .block-container, .block-container *, 
-    .stMarkdown, .stMarkdown *, .stText, .stWrite, .stSelectbox,
-    .element-container, .element-container *, .stColumn, .stColumn * {{
-        color: {text_color} !important;
-    }}
-    
-    /* Main container */
-    .block-container {{
-        max-width: 100%;
-        padding: 1rem;
-        background-color: {bg_color};
-        color: {text_color};
-    }}
-    
-    /* Header */
-    .main-header {{
-        font-size: 1.5rem;
-        font-weight: 600;
-        text-align: center;
-        margin-bottom: 1rem;
-        color: {text_color};
-        border-bottom: 1px solid {border_color};
-        padding-bottom: 1rem;
-        background-color: {header_bg};
-    }}
-    
-    /* Chat messages */
-    .chat-message {{
-        padding: 1rem 1.5rem;
-        margin: 0.5rem 0;
-        border-radius: 8px;
-        font-size: 1rem;
-        line-height: 1.5;
-        color: {text_color};
-    }}
-    
-    .user-message {{
-        background-color: {user_msg_bg};
-        color: {"#ffffff" if is_dark_mode else text_color};
-        border: 1px solid {border_color};
-    }}
-    
-    .assistant-message {{
-        background-color: {assistant_msg_bg};
-        color: {text_color};
-        border: 1px solid {border_color};
-    }}
-    
-    /* Status indicators */
-    .status-good {{
-        color: #10b981;
-        font-weight: 500;
-        padding: 0.5rem;
-        border-radius: 4px;
-        background-color: {secondary_bg};
-        margin-bottom: 1rem;
-    }}
-    
-    .status-info {{
-        color: {text_color};
-        font-size: 0.9rem;
-        padding: 0.25rem 0.5rem;
-        background-color: {secondary_bg};
-        border-radius: 4px;
-        border: 1px solid {border_color};
-    }}
-    
-    /* Main content area with proper spacing for fixed input */
-    .chat-container {{
-        padding-bottom: 120px;
-        max-width: 100%;
-    }}
-    
-    /* Fixed chat input styling like ChatGPT */
-    .stChatInput {{
-        position: fixed !important;
-        bottom: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        background-color: {bg_color} !important;
-        border-top: 1px solid {border_color} !important;
-        padding: 1rem !important;
-        z-index: 999 !important;
-        box-shadow: 0 -2px 10px rgba(0,0,0,0.1) !important;
-    }}
-    
-    .stChatInput > div {{
-        max-width: 768px !important;
-        margin: 0 auto !important;
-    }}
-    
-    /* Ensure body has proper padding for fixed input */
-    .stApp {{
-        padding-bottom: 100px !important;
-    }}
-    
-    /* Source documentation styling */
-    .source-docs {{
-        background-color: {secondary_bg};
-        border: 1px solid {border_color};
-        border-radius: 0.5rem;
-        padding: 0.75rem;
-        margin-top: 0.5rem;
-        font-size: 0.9rem;
-        color: {text_color};
-    }}
-    
-    /* Sample question buttons */
-    div[data-testid="column"] button {{
-        background-color: {secondary_bg} !important;
-        color: {text_color} !important;
-        border: 1px solid {border_color} !important;
-        border-radius: 8px !important;
-        padding: 0.75rem !important;
-        text-align: left !important;
-        width: 100% !important;
-        font-size: 0.9rem !important;
-        transition: all 0.3s ease !important;
-    }}
-    
-    div[data-testid="column"] button:hover {{
-        background-color: #667eea !important;
-        color: white !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-    }}
-    
-    /* Settings panel buttons */
-    div[data-testid="stVerticalBlock"] button {{
-        background-color: {secondary_bg} !important;
-        color: {text_color} !important;
-        border: 1px solid {border_color} !important;
-        border-radius: 6px !important;
-        margin-bottom: 0.5rem !important;
-        font-weight: 500 !important;
-        transition: all 0.2s ease !important;
-    }}
-    
-    div[data-testid="stVerticalBlock"] button:hover {{
-        background-color: {border_color} !important;
-        transform: scale(1.02) !important;
-    }}
-    
-    /* Help section styling */
-    .help-banner {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        animation: fadeIn 0.5s ease-in;
-    }}
-    
-    @keyframes fadeIn {{
-        from {{ opacity: 0; transform: translateY(-10px); }}
-        to {{ opacity: 1; transform: translateY(0); }}
-    }}
-    
-    /* Settings panel improvements */
-    .settings-section {{
-        background-color: {secondary_bg};
-        padding: 1rem;
-        border-radius: 8px;
-        margin-bottom: 1rem;
-        border: 1px solid {border_color};
-    }}
-    
-    /* Status indicators with better styling */
-    .status-good {{
-        color: #10b981;
-        font-weight: 500;
-        padding: 0.75rem;
-        border-radius: 6px;
-        background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-        margin-bottom: 1rem;
-        border: 1px solid #10b981;
-        animation: pulse 2s infinite;
-    }}
-    
-    @keyframes pulse {{
-        0%, 100% {{ opacity: 1; }}
-        50% {{ opacity: 0.8; }}
-    }}
-    
-    /* Selectbox and other inputs */
-    .stSelectbox > div > div {{
-        background-color: {secondary_bg} !important;
-        color: {text_color} !important;
-        border: 1px solid {border_color} !important;
-    }}
-    
-    /* Expander styling */
-    .streamlit-expanderHeader {{
-        background-color: {secondary_bg} !important;
-        color: {text_color} !important;
-        border: 1px solid {border_color} !important;
-    }}
-    
-    /* Chat input text field styling for better visibility */
-    .stChatInput input[type="text"] {{
-        background-color: {bg_color} !important;
-        color: {text_color} !important;
-        border: 2px solid {border_color} !important;
-        border-radius: 12px !important;
-        padding: 12px 16px !important;
-        font-size: 16px !important;
-        font-weight: 500 !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
-        transition: all 0.2s ease !important;
-        min-height: 44px !important;
-    }}
-    
-    .stChatInput input[type="text"]:focus {{
-        border-color: #0066cc !important;
-        box-shadow: 0 4px 12px rgba(0,102,204,0.25) !important;
-        outline: none !important;
-        background-color: {bg_color} !important;
-    }}
-    
-    .stChatInput input[type="text"]::placeholder {{
-        color: #666666 !important;
-        opacity: 0.9 !important;
-        font-weight: 400 !important;
-    }}
-    
-    /* Make sure the chat input container has proper styling */
-    .stChatInput textarea, .stChatInput input {{
-        background-color: {bg_color} !important;
-        color: {text_color} !important;
-        border: 2px solid {border_color} !important;
-        font-size: 16px !important;
-        font-weight: 500 !important;
-    }}
-    
-    /* ChatGPT-style sidebar */
-    .stSidebar > div:first-child {{
-        background-color: {secondary_bg} !important;
-        border-right: 1px solid {border_color} !important;
-    }}
-    
-    .stSidebar .stMarkdown h3 {{
-        color: {text_color} !important;
-        font-size: 1.1rem !important;
-        font-weight: 600 !important;
-        margin-bottom: 0.5rem !important;
-    }}
-    
-    .stSidebar .stButton > button {{
-        background-color: {bg_color} !important;
-        color: {text_color} !important;
-        border: 1px solid {border_color} !important;
-        border-radius: 6px !important;
-        margin-bottom: 0.5rem !important;
-        font-size: 0.9rem !important;
-        text-align: left !important;
-        transition: all 0.2s ease !important;
-    }}
-    
-    .stSidebar .stButton > button:hover {{
-        background-color: {user_msg_bg} !important;
-        color: white !important;
-        transform: translateX(2px) !important;
-    }}
-    
-    /* Compact settings button */
-    [data-testid="stPopover"] button {{
-        padding: 8px 12px !important;
-        font-size: 18px !important;
-        border-radius: 6px !important;
-        background-color: {secondary_bg} !important;
-        border: 1px solid {border_color} !important;
-        color: {text_color} !important;
-        transition: all 0.2s ease !important;
-        min-width: unset !important;
-        width: auto !important;
-    }}
-    
-    [data-testid="stPopover"] button:hover {{
-        background-color: {user_msg_bg} !important;
-        color: white !important;
-        transform: scale(1.05) !important;
-    }}
-    
+  /* Hide Streamlit chrome */
+  #MainMenu {{visibility:hidden;}}
+  footer {{visibility:hidden;}}
+  header {{visibility:hidden;}}
+
+  .stApp {{
+    background:{bg_color};
+    color:{text_color};
+    padding-bottom:100px !important; /* room for fixed chat input */
+  }}
+
+  .block-container {{
+    max-width: 1200px;
+    padding-top: 0.75rem;
+  }}
+
+  /* Top header */
+  .main-header {{
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin: 0;
+    color: {text_color};
+  }}
+
+  .status-good {{
+    color: #065f46;
+    font-weight: 500;
+    font-size: 0.92rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    margin: 0.5rem 0 1rem 0;
+  }}
+
+  /* Welcome banner (light, compact) */
+  .welcome {{
+    background: linear-gradient(135deg, #e0f2fe 0%, #ede9fe 100%);
+    color: #1f2937;
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid {border_color};
+    margin-bottom: 1rem;
+  }}
+
+  /* Sample question pills */
+  .pill {{
+    display:inline-block;
+    background:#fff;
+    color:{text_color};
+    border:1px solid {border_color};
+    border-radius:9999px;
+    padding:0.55rem 0.9rem;
+    font-size:0.95rem;
+    margin:0.25rem 0;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }}
+  .pill:hover {{
+    background:#f3f4f6;
+    transform: translateY(-1px);
+  }}
+
+  /* Chat bubbles */
+  .chat-message {{
+    padding: 0.85rem 1rem;
+    margin: 0.5rem 0;
+    border-radius: 10px;
+    border: 1px solid {border_color};
+    font-size: 1rem;
+    line-height: 1.5;
+    color: {text_color};
+  }}
+  .user-message {{ background: {user_msg_bg}; }}
+  .assistant-message {{ background: {assistant_msg_bg}; }}
+
+  .source-inline {{
+    font-size: 0.9rem;
+    color: #374151;
+    margin-top: 0.35rem;
+  }}
+
+  /* Fixed chat input style */
+  .stChatInput {{
+    position: fixed !important;
+    bottom: 0 !important; left: 0 !important; right: 0 !important;
+    background: {bg_color} !important;
+    border-top: 1px solid {border_color} !important;
+    padding: 0.75rem 1rem !important;
+    z-index: 999 !important;
+  }}
+  .stChatInput > div {{
+    max-width: 900px !important;
+    margin: 0 auto !important;
+  }}
 </style>
 """
 
-# Apply dynamic CSS based on current theme
-st.markdown(get_css_styles(st.session_state.get('dark_mode', False)), unsafe_allow_html=True)
 
+# Force light UI
+st.markdown(get_css_styles(), unsafe_allow_html=True)
+
+
+# --------------------------
+# Data loading & Vector store
+# --------------------------
 @st.cache_resource
 def load_documents():
-    """Load and process PDF documents"""
-    docs_path = './input'
+    docs_path = "./input"
     all_docs = []
-    
     if not os.path.exists(docs_path):
-        st.error(f"Input directory '{docs_path}' not found!")
         return []
-    
-    with st.spinner("Loading documents..."):
-        for file in os.listdir(docs_path):
-            if file.endswith('.pdf'):
-                try:
-                    loader = PyPDFLoader(os.path.join(docs_path, file))
-                    pages = loader.load()
-                    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-                    docs = splitter.split_documents(pages)
-                    all_docs.extend(docs)
-                except Exception as e:
-                    st.markdown(f'<div class="status-info">Error loading {file}: {str(e)}</div>', unsafe_allow_html=True)
-    
+    for file in os.listdir(docs_path):
+        if file.lower().endswith(".pdf"):
+            try:
+                loader = PyPDFLoader(os.path.join(docs_path, file))
+                pages = loader.load()
+                splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+                docs = splitter.split_documents(pages)
+                all_docs.extend(docs)
+            except Exception as e:
+                st.warning(f"Error loading {file}: {e}")
     return all_docs
 
-def get_documents_hash(docs_path='./input'):
-    """Generate hash of all PDF files for cache validation"""
+
+def get_documents_hash(docs_path="./input"):
     hash_md5 = hashlib.md5()
-    
     if not os.path.exists(docs_path):
         return ""
-    
-    pdf_files = sorted([f for f in os.listdir(docs_path) if f.endswith('.pdf')])
-    
-    for file in pdf_files:
-        file_path = os.path.join(docs_path, file)
-        if os.path.exists(file_path):
-            # Include filename and modification time in hash
-            file_info = f"{file}_{os.path.getmtime(file_path)}"
-            hash_md5.update(file_info.encode())
-    
+    pdf_files = sorted([f for f in os.listdir(docs_path) if f.lower().endswith(".pdf")])
+    for f in pdf_files:
+        fp = os.path.join(docs_path, f)
+        if os.path.exists(fp):
+            info = f"{f}_{os.path.getmtime(fp)}"
+            hash_md5.update(info.encode())
     return hash_md5.hexdigest()
+
 
 @st.cache_resource
 def create_or_load_vectorstore(_docs):
-    """Create or load cached FAISS vectorstore"""
-    cache_dir = './faiss_cache'
-    index_file = os.path.join(cache_dir, 'index.faiss')
-    pkl_file = os.path.join(cache_dir, 'index.pkl')
-    hash_file = os.path.join(cache_dir, 'docs_hash.txt')
-    
-    # Create cache directory if it doesn't exist
+    cache_dir = "./faiss_cache"
+    index_file = os.path.join(cache_dir, "index.faiss")
+    pkl_file = os.path.join(cache_dir, "index.pkl")
+    hash_file = os.path.join(cache_dir, "docs_hash.txt")
     os.makedirs(cache_dir, exist_ok=True)
-    
-    # Get current documents hash
+
     current_hash = get_documents_hash()
-    
-    # Check if cached vectorstore exists and is valid
-    if (os.path.exists(index_file) and 
-        os.path.exists(pkl_file) and 
-        os.path.exists(hash_file)):
-        
+
+    # Try load
+    if os.path.exists(index_file) and os.path.exists(pkl_file) and os.path.exists(hash_file):
         try:
-            # Read stored hash
-            with open(hash_file, 'r') as f:
+            with open(hash_file, "r") as f:
                 stored_hash = f.read().strip()
-            
-            # If hashes match, load cached vectorstore
             if stored_hash == current_hash and current_hash:
-                st.info("Loading cached vector database...")
-                embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-                vectorstore = FAISS.load_local(cache_dir, embedding_model, allow_dangerous_deserialization=True)
-                st.success("Loaded cached vectors successfully!")
-                return vectorstore
-        except Exception as e:
-            st.markdown(f'<div class="status-info">Failed to load cached vectors: {str(e)}</div>', unsafe_allow_html=True)
-    
-    # Create new vectorstore if cache is invalid or doesn't exist
+                emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                vs = FAISS.load_local(cache_dir, emb, allow_dangerous_deserialization=True)
+                return vs
+        except Exception:
+            pass
+
+    # Build fresh
     if not _docs:
         return None
-    
-    with st.spinner("Creating new vector database..."):
-        embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        vectorstore = FAISS.from_documents(_docs, embedding_model)
-        
-        # Save vectorstore to cache
-        try:
-            vectorstore.save_local(cache_dir)
-            # Save documents hash
-            with open(hash_file, 'w') as f:
-                f.write(current_hash)
-            st.success("Vector database cached for faster future loading!")
-        except Exception as e:
-            st.markdown(f'<div class="status-info">Failed to cache vectors: {str(e)}</div>', unsafe_allow_html=True)
-    
-    return vectorstore
+    emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    vs = FAISS.from_documents(_docs, emb)
+    vs.save_local(cache_dir)
+    with open(hash_file, "w") as f:
+        f.write(current_hash)
+    return vs
 
+
+# --------------------------
+# LLM / QA chain utilities
+# --------------------------
 def check_ollama_status():
-    """Check if Ollama is running and which models are available"""
     try:
-        # Use local Ollama directly (much faster!)
         llm = Ollama(model="llama3.2:latest", base_url="http://localhost:11434")
-        # Test connection with a simple query
-        llm.invoke("test")
-        return True, "Local Ollama (Fast Mode)"
+        llm.invoke("ping")
+        return True, "Local Ollama OK"
     except Exception as e:
         return False, str(e)
 
-def process_deepseek_response(response_text):
-    """Remove thinking process from deepseek responses and return clean answer"""
-    if "deepseek" in st.session_state.get('selected_model', '').lower():
-        # Remove thinking tags and content
+
+def process_deepseek_response(text):
+    if "deepseek" in st.session_state.get("selected_model", "").lower():
         import re
-        # Remove <think>...</think> blocks
-        cleaned = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
-        # Remove <thinking>...</thinking> blocks
-        cleaned = re.sub(r'<thinking>.*?</thinking>', '', cleaned, flags=re.DOTALL)
-        # Remove any remaining thinking patterns
-        cleaned = re.sub(r'\*\*Thinking:?\*\*.*?(?=\n\n|\*\*|$)', '', cleaned, flags=re.DOTALL)
-        # Clean up extra whitespace
-        cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned)
-        return cleaned.strip()
-    return response_text
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
+        text = re.sub(r"\*\*Thinking:?\*\*.*?(?=\n\n|\*\*|$)", "", text, flags=re.DOTALL)
+        text = re.sub(r"\n\s*\n\s*\n", "\n\n", text)
+    return text.strip()
+
 
 def create_qa_chain(model_name, vectorstore):
-    """Create QA chain with specified model using local Ollama"""
     if vectorstore is None:
         return None
-    
     try:
-        # Connect to local Ollama for maximum speed
         llm = Ollama(
-            model=model_name, 
+            model=model_name,
             base_url="http://localhost:11434",
-            # Optimize for speed
-            num_ctx=2048,  # Smaller context for faster processing
-            temperature=0.1,  # Lower temperature for faster, more focused responses
+            num_ctx=2048,
+            temperature=0.1,
         )
-        
-        multi_retriever = MultiQueryRetriever.from_llm(
-            retriever=vectorstore.as_retriever(search_kwargs={"k": 3}),  # Reduced from 4 to 3 for speed
-            llm=llm
-        )
-        
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            retriever=multi_retriever,
-            return_source_documents=True
-        )
-        
-        return qa_chain
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        mqr = MultiQueryRetriever.from_llm(retriever=retriever, llm=llm)
+        qa = RetrievalQA.from_chain_type(llm=llm, retriever=mqr, return_source_documents=True)
+        return qa
     except Exception as e:
-        st.error(f"Error creating QA chain: {str(e)}")
+        st.error(f"Error creating QA chain: {e}")
         return None
 
+
 def get_sample_questions():
-    """Get top 3 sample questions for main interface"""
     return [
         "How many AI methods does the paper mention?",
-        "Does Equisoft support training for agents?", 
-        "What is the main contribution of the paper?"
+        "Does Equisoft support training for agents?",
+        "What is the main contribution of the paper?",
     ]
 
+
+# --------------------------
+# App
+# --------------------------
 def main():
-    # Apply dynamic CSS based on current theme
-    st.markdown(get_css_styles(st.session_state.get('dark_mode', False)), unsafe_allow_html=True)
-    
-    # Check Ollama status
-    ollama_running, status_msg = check_ollama_status()
-    if not ollama_running:
-        st.error(f"Ollama not running: {status_msg}")
-        st.info("Please start Ollama locally: `ollama serve` then refresh this page")
-        st.info("Make sure you have the models: `ollama pull llama3.2:latest` and `ollama pull deepseek-r1:8b`")
+    # Init session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "show_sources" not in st.session_state:
+        st.session_state.show_sources = True
+    if "show_help" not in st.session_state:
+        st.session_state.show_help = True
+    if "conversation_history" not in st.session_state:
+        st.session_state.conversation_history = []
+    if "current_conversation" not in st.session_state:
+        st.session_state.current_conversation = None
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = "llama3.2:latest"
+
+    # Check LLM backend
+    ok, status = check_ollama_status()
+    if not ok:
+        st.error(f"Ollama not running: {status}")
+        st.info("Start with:  `ollama serve`")
+        st.info("Install models:  `ollama pull llama3.2:latest` and/or `ollama pull deepseek-r1:8b`")
         return
-    
-    # Load documents and create vectorstore
+
     docs = load_documents()
     if not docs:
-        st.error("No documents loaded. Please add PDF files to the 'input' directory.")
+        st.error("No documents found in ./input. Please add PDFs and refresh.")
         return
-    
-    # Initialize session state
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
-    if 'vectorstore' not in st.session_state:
+
+    if "vectorstore" not in st.session_state:
         st.session_state.vectorstore = create_or_load_vectorstore(docs)
-    if 'dark_mode' not in st.session_state:
-        st.session_state.dark_mode = False
-    if 'show_sources' not in st.session_state:
-        st.session_state.show_sources = True
-    if 'show_help' not in st.session_state:
-        st.session_state.show_help = True
-    if 'conversation_history' not in st.session_state:
-        st.session_state.conversation_history = []
-    if 'current_conversation' not in st.session_state:
-        st.session_state.current_conversation = None
-    
-    # Layout: Left chat history panel, right main content (GPT-style)
+    if st.session_state.vectorstore is None:
+        st.error("Failed to prepare vector database.")
+        return
+
+    # Layout columns: left history (slim) + main
     col1, col2 = st.columns([0.18, 0.82])
 
-    # --- Left side: Chat history and new chat/clear buttons ---
+    # Left: Chat history (collapsible)
     with col1:
-        st.markdown("### 💬 Chat History")
-        st.markdown("*Manage your conversations*")
-
-        # New conversation button
-        if st.button("➕ New Chat", use_container_width=True, type="primary", key="new_chat_btn"):
-            # Save current conversation if it has messages
-            if st.session_state.messages:
-                conversation_title = st.session_state.messages[0]["content"][:30] + "..."
-                st.session_state.conversation_history.append({
-                    "title": conversation_title,
-                    "messages": st.session_state.messages.copy(),
-                    "timestamp": time.time()
-                })
-            # Start new conversation
-            st.session_state.messages = []
-            st.session_state.current_conversation = None
-            st.rerun()
-
-        st.markdown("---")
-
-        # Display conversation history
-        for i, conv in enumerate(reversed(st.session_state.conversation_history)):
-            if st.button(
-                f"📄 {conv['title']}",
-                key=f"conv_{i}",
-                use_container_width=True,
-                help=f"Created {time.strftime('%Y-%m-%d %H:%M', time.localtime(conv['timestamp']))}"
-            ):
-                # Save current conversation before switching
-                if st.session_state.messages and st.session_state.current_conversation is None:
-                    conversation_title = st.session_state.messages[0]["content"][:30] + "..."
+        with st.expander("💬 Chat History", expanded=True):
+            if st.button("➕ New Chat", use_container_width=True):
+                if st.session_state.messages:
+                    title = st.session_state.messages[0]["content"][:30] + "..."
                     st.session_state.conversation_history.append({
-                        "title": conversation_title,
+                        "title": title,
                         "messages": st.session_state.messages.copy(),
-                        "timestamp": time.time()
+                        "timestamp": time.time(),
                     })
-                # Load selected conversation
-                st.session_state.messages = conv['messages'].copy()
-                st.session_state.current_conversation = i
+                st.session_state.messages = []
+                st.session_state.current_conversation = None
                 st.rerun()
 
-        # Place Clear History button at the bottom (spacer if needed)
-        if st.session_state.conversation_history:
             st.markdown("---")
-            if st.button("🗑️ Clear History", use_container_width=True, type="secondary", key="clear_history_btn"):
-                st.session_state.conversation_history = []
-                st.rerun()
 
-    # --- Right side: Main content area, header, settings, chat ---
-    with col2:
-        # Clean top bar with centered title and compact settings icon
-        top_col1, top_col2 = st.columns([0.92, 0.08])
-        with top_col1:
-            st.markdown('''
-            <div style="text-align: center;">
-                <h1 class="main-header">🧠 DocuMind AI</h1>
-                <div class="status-good">Connected to Local Server • {} Documents Loaded</div>
-            </div>
-            '''.format(len(docs)), unsafe_allow_html=True)
-        with top_col2:
-            # Compact settings icon only (popover for settings)
-            with st.popover("⚙️", help="Settings & Preferences"):
-                st.markdown("**⚙️ DocuMind Settings**")
-                # Model selection moved to settings
-                model_options = ["llama3.2:latest", "deepseek-r1:8b", "llama3.1:8b", "gemma2:9b"]
-                selected_model = st.selectbox(
-                    "Choose AI Model",
-                    model_options,
-                    index=0,
-                    help="llama3.2 (Balanced) • deepseek (Reasoning) • llama3.1 (Reliable) • gemma2 (Fast)",
-                    key="model_selection_settings"
-                )
-                st.session_state.selected_model = selected_model
-
-                st.markdown("---")
-
-                # Theme toggle
-                theme_text = "☀️ Light Mode" if st.session_state.dark_mode else "🌙 Dark Mode"
-                if st.button(theme_text, use_container_width=True, key="theme_btn"):
-                    st.session_state.dark_mode = not st.session_state.dark_mode
+            for i, conv in enumerate(reversed(st.session_state.conversation_history)):
+                if st.button(f"📄 {conv['title']}", key=f"conv_{i}", use_container_width=True):
+                    # Save current before switch (if never saved)
+                    if st.session_state.messages and st.session_state.current_conversation is None:
+                        title = st.session_state.messages[0]["content"][:30] + "..."
+                        st.session_state.conversation_history.append({
+                            "title": title,
+                            "messages": st.session_state.messages.copy(),
+                            "timestamp": time.time(),
+                        })
+                    st.session_state.messages = conv["messages"].copy()
+                    st.session_state.current_conversation = i
                     st.rerun()
 
-                # Sources toggle
-                sources_text = "📄 Hide Sources" if st.session_state.show_sources else "📄 Show Sources"
-                if st.button(f"{sources_text}", use_container_width=True, key="sources_btn"):
+            if st.session_state.conversation_history:
+                st.markdown("---")
+                if st.button("🗑️ Clear History", use_container_width=True):
+                    st.session_state.conversation_history = []
+                    st.rerun()
+
+    # Right: Main content
+    with col2:
+        # Top bar: title + settings icon (popover)
+        top_l, top_r = st.columns([0.94, 0.06])
+        with top_l:
+            st.markdown(
+                f"""
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                  <h1 class="main-header">🧠 DocuMind AI</h1>
+                </div>
+                <div class="status-good">✅ Connected to Local Server • {len(docs)} Documents Loaded</div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with top_r:
+            with st.popover("⚙️", help="Settings"):
+                st.markdown("**Settings**")
+                model_options = ["llama3.2:latest", "deepseek-r1:8b", "llama3.1:8b", "gemma2:9b"]
+                st.session_state.selected_model = st.selectbox(
+                    "AI Model",
+                    model_options,
+                    index=model_options.index(st.session_state.get("selected_model", "llama3.2:latest"))
+                    if st.session_state.get("selected_model", "llama3.2:latest") in model_options else 0,
+                    help="llama3.2 (Balanced) • deepseek (Reasoning) • llama3.1 (Reliable) • gemma2 (Fast)",
+                    key="model_selection_settings",
+                )
+
+                src_btn = "📄 Hide Sources" if st.session_state.show_sources else "📄 Show Sources"
+                if st.button(src_btn, use_container_width=True):
                     st.session_state.show_sources = not st.session_state.show_sources
                     st.rerun()
 
-                # Help toggle
-                help_text = "❓ Hide Help" if st.session_state.show_help else "❓ Show Help"
-                if st.button(help_text, use_container_width=True, key="help_btn"):
+                help_btn = "❓ Hide Help" if st.session_state.show_help else "❓ Show Help"
+                if st.button(help_btn, use_container_width=True):
                     st.session_state.show_help = not st.session_state.show_help
                     st.rerun()
 
-                st.markdown("---")
-                st.markdown(f"**📊 Analytics**")
-                st.markdown(f"• Documents: {len(docs)}")
-                st.markdown(f"• Conversations: {len(st.session_state.conversation_history)}")
-
-                # About
-                with st.expander("ℹ️ About DocuMind AI"):
-                    st.markdown("**🧠 DocuMind AI v2.0**")
-                    st.markdown("Intelligent Document Assistant")
-                    st.markdown("**Developer:** Jason Xu")
-                    st.markdown("📧 nvtech.consult@gmail.com")
-    
-        # Main chat area
-        # Help section (shown when help is enabled)
+        # Welcome banner
         if st.session_state.show_help and len(st.session_state.messages) == 0:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        color: white; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;">
-                <h3>🧠 Welcome to DocuMind AI</h3>
-                <p><strong>Intelligent Document Assistant - How to use:</strong></p>
-                <ul>
-                    <li>📄 <strong>Ask questions</strong> about your uploaded documents</li>
-                    <li>🤖 <strong>Choose your AI model</strong> in the top bar</li>
-                    <li>🌙 <strong>Toggle themes</strong> in settings (⚙️)</li>
-                    <li>📋 <strong>Show/hide sources</strong> in settings</li>
-                </ul>
-                <p><em>💡 Tip: Start with the sample questions below, or ask anything about your documents!</em></p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                """
+                <div class="welcome">
+                  <strong>👋 Welcome to DocuMind AI</strong>
+                  <ul style="margin:0.35rem 0 0 1.25rem;">
+                    <li>Ask questions about your uploaded PDFs</li>
+                    <li>Pick a model in ⚙️ if needed</li>
+                    <li>Try a sample question below</li>
+                  </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-        # Sample questions section (above chat)
+        # Sample question pills
         if len(st.session_state.messages) == 0:
-            if st.session_state.show_help:
-                st.markdown("### 💡 Try these sample questions:")
-            else:
-                st.markdown("### Ask me anything about your documents:")
-
-            sample_questions = get_sample_questions()
+            st.markdown("### 💡 Try these sample questions:")
             qcols = st.columns(3)
-            for i, question in enumerate(sample_questions):
+            samples = get_sample_questions()
+            for i, q in enumerate(samples):
                 with qcols[i]:
-                    if st.button(question, key=f"sample_{i}", use_container_width=True):
-                        st.session_state.current_question = question
+                    if st.button(f"💡 {q}", use_container_width=True, key=f"sample_{i}"):
+                        st.session_state.current_question = q
+                        st.rerun()
 
-        # Chat messages container with proper spacing for fixed input
-        st.markdown('<div class="chat-container" style="padding-bottom: 120px;">', unsafe_allow_html=True)
+        # Messages
+        for msg in st.session_state.messages:
+            role = msg["role"]
+            cls = "user-message" if role == "user" else "assistant-message"
+            st.markdown(
+                f'<div class="chat-message {cls}"><strong>{"You" if role=="user" else "AI Agent"}</strong><br>{msg["content"]}</div>',
+                unsafe_allow_html=True,
+            )
+            if role != "user" and st.session_state.show_sources and msg.get("sources"):
+                inline = " • ".join(msg["sources"])
+                st.markdown(f'<div class="source-inline">📄 {inline}</div>', unsafe_allow_html=True)
 
-        # Display chat messages
-        for message in st.session_state.messages:
-            if message["role"] == "user":
-                st.markdown(f"""
-                <div class="chat-message user-message">
-                    <strong>You</strong><br>
-                    {message["content"]}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="chat-message assistant-message">
-                    <strong>AI Agent</strong><br>
-                    {message["content"]}
-                </div>
-                """, unsafe_allow_html=True)
+        # Rotating placeholder
+        hints = [
+            "Ask about findings or methods…",
+            "Try: “Summarize the key points.”",
+            "Ask: “Which pages support this?”",
+        ]
 
-                # Show sources if available and enabled
-                if "sources" in message and st.session_state.show_sources:
-                    sources_html = "<div class='source-docs'><strong>📄 Sources:</strong><br>"
-                    for source in message["sources"]:
-                        sources_html += f"• {source}<br>"
-                    sources_html += "</div>"
-                    st.markdown(sources_html, unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Fixed chat input at the bottom (outside of columns, full width)
-        # Enhanced chat input with guidance
-        if st.session_state.show_help and len(st.session_state.messages) == 0:
-            chat_placeholder = "💬 Type your question here... (e.g., 'What are the main findings?' or 'Summarize the key points')"
-        else:
-            chat_placeholder = "Ask a question about your documents..."
-
-        question = st.chat_input(chat_placeholder)
-
-        # Handle sample question selection
-        if 'current_question' in st.session_state:
+        # Auto-submit if a sample was clicked
+        if "current_question" in st.session_state:
             question = st.session_state.current_question
             del st.session_state.current_question
+        else:
+            question = st.chat_input(random.choice(hints))
 
+        # Handle question
         if question:
-            # Add user message
             st.session_state.messages.append({"role": "user", "content": question})
-
-            # Get answer with timing
-            start_time = time.time()
-            with st.spinner(f"Processing with {selected_model}..."):
-                qa_chain = create_qa_chain(selected_model, st.session_state.vectorstore)
-
-                if qa_chain:
-                    try:
-                        result = qa_chain(question)
-                        end_time = time.time()
-                        response_time = f"{end_time - start_time:.1f}s"
-
-                        # Process the answer and clean deepseek responses
-                        raw_answer = result["result"]
-                        answer = process_deepseek_response(raw_answer)
-                        sources = []
-
-                        # Enhanced source formatting
-                        for doc in result.get("source_documents", []):
-                            source_name = os.path.basename(doc.metadata.get('source', 'Unknown'))
-                            page = doc.metadata.get('page', 'Unknown')
-                            sources.append(f"📄 {source_name} (Page: {page})")
-
-                        # Enhanced answer formatting
-                        formatted_answer = f"{answer}"
-                        if st.session_state.show_help:
-                            formatted_answer += f"\n\n⚡ *Response time: {response_time} using {selected_model}*"
-
-                        # Add assistant message
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": formatted_answer,
-                            "sources": sources
-                        })
-
-                    except Exception as e:
-                        error_msg = f"❌ Error generating answer: {str(e)}"
-                        if st.session_state.show_help:
-                            error_msg += "\n\n💡 **Troubleshooting:**\n- Make sure Ollama is running: `ollama serve`\n- Check if the model is installed: `ollama list`\n- Try a different model from the settings"
-                        st.error(error_msg)
+            start = time.time()
+            with st.spinner(f"Processing with {st.session_state.selected_model}…"):
+                qa = create_qa_chain(st.session_state.selected_model, st.session_state.vectorstore)
+                if qa is None:
+                    st.error("QA chain unavailable.")
                 else:
-                    st.error("Failed to create QA chain. Please check Ollama connection.")
+                    try:
+                        result = qa(question)
+                        elapsed = f"{time.time() - start:.1f}s"
+                        raw = result.get("result", "")
+                        answer = process_deepseek_response(raw)
 
-            # Rerun to show new messages
+                        sources = []
+                        for d in result.get("source_documents", []):
+                            name = os.path.basename(d.metadata.get("source", "Unknown"))
+                            page = d.metadata.get("page", "—")
+                            sources.append(f"{name} (p.{page})")
+
+                        content = answer
+                        if st.session_state.show_help:
+                            content += f"\n\n_⚡ Response time: {elapsed} using {st.session_state.selected_model}_"
+
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": content, "sources": sources}
+                        )
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+
             st.rerun()
+
 
 if __name__ == "__main__":
     main()
