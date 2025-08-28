@@ -252,6 +252,42 @@ def get_css_styles(is_dark_mode=False):
         border: 1px solid {border_color} !important;
     }}
     
+    /* Chat input text field styling for better visibility */
+    .stChatInput input[type="text"] {{
+        background-color: {bg_color} !important;
+        color: {text_color} !important;
+        border: 2px solid {border_color} !important;
+        border-radius: 12px !important;
+        padding: 12px 16px !important;
+        font-size: 16px !important;
+        font-weight: 500 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+        transition: all 0.2s ease !important;
+        min-height: 44px !important;
+    }}
+    
+    .stChatInput input[type="text"]:focus {{
+        border-color: #0066cc !important;
+        box-shadow: 0 4px 12px rgba(0,102,204,0.25) !important;
+        outline: none !important;
+        background-color: {bg_color} !important;
+    }}
+    
+    .stChatInput input[type="text"]::placeholder {{
+        color: #666666 !important;
+        opacity: 0.9 !important;
+        font-weight: 400 !important;
+    }}
+    
+    /* Make sure the chat input container has proper styling */
+    .stChatInput textarea, .stChatInput input {{
+        background-color: {bg_color} !important;
+        color: {text_color} !important;
+        border: 2px solid {border_color} !important;
+        font-size: 16px !important;
+        font-weight: 500 !important;
+    }}
+    
 </style>
 """
 

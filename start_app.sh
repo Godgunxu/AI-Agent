@@ -22,8 +22,8 @@ echo "✅ Dependencies verified"
 echo ""
 
 # Start the DocuMind AI application
-echo "🚀 Launching DocuMind AI on http://localhost:8501"
+echo "🚀 Launching DocuMind AI on http://localhost:8502"
 echo "💡 Press Ctrl+C to stop the application"
 echo ""
 
-streamlit run app_fast.py --server.port 8501 --server.address 0.0.0.0
+streamlit run app_fast.py --server.port 8502 --server.address 0.0.0.0
